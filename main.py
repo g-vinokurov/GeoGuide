@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from utils import Translator, Geocoder, Representer
+from utils import Translator, Geocoder, Meteorologist, Representer
 import settings
 
 
@@ -19,6 +19,7 @@ translator = Translator()
 translator.init()
 
 geocoder = Geocoder()
+meteorologist = Meteorologist()
 
 
 @dp.message(Command('start'))
@@ -48,8 +49,11 @@ async def msg_handler(message: types.Message):
 @dp.callback_query(F.data.startswith('point+@'))
 async def geolocation_point_handler(callback: types.CallbackQuery):
     point = json.loads(callback.data.lstrip('point+@'))
-    lat, lon = point.get('lat', 0), point.get('lng', 0)
-    await callback.message.answer(f'Lat: {lat}, Lon: {lon}')
+    latitude, longitude = point.get('lat', 0.0), point.get('lng', 0.0)
+
+    weather = await meteorologist.weather(latitude, longitude)
+    weather = Representer.repr_weather(weather)
+    await callback.message.answer(f'{weather}')
 
 
 async def main():
