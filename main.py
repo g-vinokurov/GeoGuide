@@ -9,9 +9,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 import requests
 
-import config
+import settings
 
-iam_data = str({'yandexPassportOauthToken': config.YANDEX_OAUTH_TOKEN})
+iam_data = str({'yandexPassportOauthToken': settings.YANDEX_OAUTH_TOKEN})
 iam_url = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
 iam_token = requests.post(data=iam_data, url=iam_url).json().get('iamToken', '')
 headers = {
@@ -19,7 +19,7 @@ headers = {
     'Authorization': 'Bearer {0}'.format(iam_token)
 }
 
-bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
 print('--STARTED--')
@@ -29,7 +29,7 @@ async def get_translation(*args):
     body = {
         'targetLanguageCode': 'ru',
         'texts': list(args),
-        'folderId': config.YANDEX_CLOUD_FOLDER_ID,
+        'folderId': settings.YANDEX_CLOUD_FOLDER_ID,
     }
     url = 'https://translate.api.cloud.yandex.net/translate/v2/translate'
 
@@ -80,7 +80,7 @@ async def msg_handler(message: types.Message):
 
 async def get_locations(query):
     url = 'https://graphhopper.com/api/1/geocode'
-    api_key = config.GRAPHHOPPER_API_KEY
+    api_key = settings.GRAPHHOPPER_API_KEY
     params = {'q': f'{query}', 'locale': 'ru', 'limit': '10', 'key': api_key}
 
     async with ClientSession() as session:
@@ -92,7 +92,7 @@ async def get_locations(query):
 
 async def get_weather(lat, lon):
     url = 'https://api.openweathermap.org/data/2.5/weather'
-    api_key = config.OPENWEATHERMAP_API_KEY
+    api_key = settings.OPENWEATHERMAP_API_KEY
     params = {'lat': f'{lat}', 'lon': f'{lon}', 'APPID': api_key}
 
     async with ClientSession() as session:

@@ -1,5 +1,0 @@
-TELEGRAM_BOT_TOKEN = 'your-telegram-bot-token'
-YANDEX_OAUTH_TOKEN = 'your-yandex-cloud-oauth-token'
-YANDEX_CLOUD_FOLDER_ID = 'your-yandex-cloud-folder-id'
-GRAPHHOPPER_API_KEY = 'your-graphhopper-api-key'
-OPENWEATHERMAP_API_KEY = 'your-openweathermap-api-key'
