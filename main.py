@@ -1,104 +1,55 @@
 # -*- coding: utf-8 -*-
-import asyncio
-from aiohttp import ClientSession
 
+import asyncio
+import json
+
+from aiogram import F
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
-from aiogram.filters.state import StatesGroup, State
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-import requests
-
+from utils import Translator, Geocoder, Representer
 import settings
 
-iam_data = str({'yandexPassportOauthToken': settings.YANDEX_OAUTH_TOKEN})
-iam_url = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
-iam_token = requests.post(data=iam_data, url=iam_url).json().get('iamToken', '')
-headers = {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer {0}'.format(iam_token)
-}
 
 bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-print('--STARTED--')
+translator = Translator()
+translator.init()
 
-
-async def get_translation(*args):
-    body = {
-        'targetLanguageCode': 'ru',
-        'texts': list(args),
-        'folderId': settings.YANDEX_CLOUD_FOLDER_ID,
-    }
-    url = 'https://translate.api.cloud.yandex.net/translate/v2/translate'
-
-    async with ClientSession() as session:
-        async with session.post(url=url, json=body, headers=headers) as resp:
-            data = await resp.json()
-    return [x.get('text', '') for x in data.get('translations', [])]
-
-
-async def repr_location(location):
-    country = location.get("country", None)
-    city = location.get("city", None)
-    name = location.get("name", None)
-    key = location.get("osm_key", None)
-    value = location.get("osm_value", None)
-
-    answer = [country, city, name]
-
-    to_ts = [str(x).capitalize() for x in (key, value) if x is not None]
-    ts = await get_translation(*to_ts)
-
-    answer.extend(ts)
-
-    answer = [x for x in answer if x is not None]
-    return ', '.join(answer)
+geocoder = Geocoder()
 
 
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):
-    await message.answer('Привет! Я могу многое рассказать о географических объектах. Тебе стоит лишь написать мне название чего-либо, а я постараюсь найти это')
+    await message.answer('Привет! Давай найдём какую-нибудь интерсную локацию!')
 
 
 @dp.message()
 async def msg_handler(message: types.Message):
-    locations = await get_locations(message.text)
+    locations = await geocoder.search(message.text)
+    represented = await Representer.repr_locations(locations, translator)
 
-    tasks = [asyncio.create_task(repr_location(x)) for x in locations]
+    if not locations:
+        return await message.answer('Странно... ничего не нашёл :(')
 
-    keys = await asyncio.gather(*tasks)
+    kbd = []
+    for location, represented_location in zip(locations, represented):
+        btn_data = f'point+@{json.dumps(location["point"])}'
+        btn_text = represented_location
+        button = InlineKeyboardButton(text=btn_text, callback_data=btn_data)
+        kbd.append([button])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=key, callback_data=str(location['point']))
-        ] for key, location in zip(keys, locations)
-    ])
-    await message.answer("Я нашёл несколько локаций. Выберите, о чём ты хочешь узнать подробнее", reply_markup=keyboard)
-
-
-async def get_locations(query):
-    url = 'https://graphhopper.com/api/1/geocode'
-    api_key = settings.GRAPHHOPPER_API_KEY
-    params = {'q': f'{query}', 'locale': 'ru', 'limit': '10', 'key': api_key}
-
-    async with ClientSession() as session:
-        async with session.get(url=url, params=params) as response:
-            data = await response.json()
-            hits = data.get('hits', [])
-    return hits
+    keyboard = InlineKeyboardMarkup(inline_keyboard=kbd)
+    await message.answer('Смотри, что я нашёл:', reply_markup=keyboard)
 
 
-async def get_weather(lat, lon):
-    url = 'https://api.openweathermap.org/data/2.5/weather'
-    api_key = settings.OPENWEATHERMAP_API_KEY
-    params = {'lat': f'{lat}', 'lon': f'{lon}', 'APPID': api_key}
-
-    async with ClientSession() as session:
-        async with session.get(url=url, params=params) as response:
-            data = await response.json()
-    return data
+@dp.callback_query(F.data.startswith('point+@'))
+async def geolocation_point_handler(callback: types.CallbackQuery):
+    point = json.loads(callback.data.lstrip('point+@'))
+    lat, lon = point.get('lat', 0), point.get('lng', 0)
+    await callback.message.answer(f'Lat: {lat}, Lon: {lon}')
 
 
 async def main():
@@ -106,6 +57,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    print('---------- STARTED ----------')
     asyncio.run(main())
-
-
