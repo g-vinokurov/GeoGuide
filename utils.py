@@ -126,7 +126,7 @@ class Representer:
 
     @staticmethod
     def repr_weather(weather_data: dict):
-        description = weather_data.get('weather', {}).get('description', '')
+        description = weather_data.get('weather', [{}])[0].get('description', '')
 
         main_data = weather_data.get('main', {})
         temp = main_data.get('temp', 0.0)  # Celsius
@@ -143,15 +143,15 @@ class Representer:
         wind_direction = Representer.__repr_wind_direction(wind_deg)
         wind_gust = wind_data.get('gust', 0)  # meter/sec
 
-        tz = timezone(timedelta(weather_data.get('timezone', 0)))
+        tz = timezone(timedelta(seconds=weather_data.get('timezone', 0)))
 
         sunrise = weather_data.get('sys', {}).get('sunrise', time.time())
         sunrise = datetime.fromtimestamp(sunrise, tz=tz)
-        sunrise = f'{sunrise.hour}:{sunrise.minute}'
+        sunrise = f'{str(sunrise.hour).zfill(2)}:{str(sunrise.minute).zfill(2)}'
 
         sunset = weather_data.get('sys', {}).get('sunset', time.time())
         sunset = datetime.fromtimestamp(sunset, tz=tz)
-        sunset = f'{sunset.hour}:{sunset.minute}'
+        sunset = f'{str(sunset.hour).zfill(2)}:{str(sunset.minute).zfill(2)}'
 
         representation = f'Погода в выбранном месте: {description}\n'
         representation += f'Температура воздуха: {temp}°C\n'
