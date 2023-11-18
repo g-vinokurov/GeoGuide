@@ -2,50 +2,47 @@
 
 import asyncio
 import requests
-import time
-from datetime import datetime, timezone, timedelta
 
 from aiohttp import ClientSession
 
+import time
+from datetime import datetime, timezone, timedelta
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
-import settings
 
-
-class Translator:
-    __IAM_DATA = {'yandexPassportOauthToken': settings.YANDEX_OAUTH_TOKEN}
-    __IAM_URL = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
+class YandexTranslator:
     __URL = 'https://translate.api.cloud.yandex.net/translate/v2/translate'
+    __IAM_URL = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
 
-    def __init__(self):
-        self.__headers = {'Content-Type': 'application/json'}
-        self.__folder_id = settings.YANDEX_CLOUD_FOLDER_ID
+    def __init__(self, yandex_oauth_token: str, yandex_cloud_folder_id: str):
+        self.__oauth_token = yandex_oauth_token
+        self.__folder_id = yandex_cloud_folder_id
 
         self.__scheduler = BackgroundScheduler()
-        self.__scheduler.add_job(self.__update_iam_token, 'interval', hours=4)
+        self.__scheduler.add_job(self.__update_iam_token, 'interval', hours=1)
         self.__scheduler.start()
 
-    def __update_iam_token(self):
-        data, url = Translator.__IAM_DATA, Translator.__IAM_URL
-        response = requests.post(data=str(data), url=url)
-        iam_token = response.json().get('iamToken', '')
-        self.__headers['Authorization'] = f'Bearer {iam_token}'
-
-    def init(self):
         self.__update_iam_token()
 
-    def quit(self):
+    def __del__(self):
         self.__scheduler.shutdown()
-        self.__headers['Authorization'] = None
+
+    def __update_iam_token(self):
+        iam_data = str({'yandexPassportOauthToken': self.__oauth_token})
+        response = requests.post(data=iam_data, url=self.__class__.__IAM_URL)
+        self.__iam_token = response.json().get('iamToken', '')
 
     async def translate(self, words: list[str], lang='ru'):
-        parameters = {'json': {}, 'headers': self.__headers}
-        parameters['json']['folderId'] = self.__folder_id
-        parameters['json']['targetLanguageCode'] = lang
-        parameters['json']['texts'] = words
+        params = {'json': {}, 'headers': {}}
+        params['headers']['Content-Type'] = 'application/json'
+        params['headers']['Authorization'] = f'Bearer {self.__iam_token}'
+        params['json']['folderId'] = self.__folder_id
+        params['json']['targetLanguageCode'] = lang
+        params['json']['texts'] = words
 
         async with ClientSession() as session:
-            async with session.post(url=Translator.__URL, **parameters) as resp:
+            async with session.post(url=self.__class__.__URL, **params) as resp:
                 data = await resp.json()
         return [x.get('text', '') for x in data.get('translations', [])]
 
@@ -53,43 +50,90 @@ class Translator:
 class Geocoder:
     __URL = 'https://graphhopper.com/api/1/geocode'
 
-    def __init__(self):
-        self.__key = settings.GRAPHHOPPER_API_KEY
+    def __init__(self, token: str):
+        self.__api_key = token
 
-    async def search(self, q: str, lang='ru', lim=10):
-        params = {'key': self.__key, 'q': q, 'locale': lang, 'limit': str(lim)}
+    async def search(self, query: str, lang='ru', limit=10):
+        params = {'params': {}}
+        params['params']['key'] = self.__api_key,
+        params['params']['q'] = query,
+        params['params']['locale'] = lang
+        params['params']['limit'] = limit
 
         async with ClientSession() as session:
-            async with session.get(url=Geocoder.__URL, params=params) as resp:
+            async with session.get(url=self.__class__.__URL, **params) as resp:
                 data = await resp.json()
         return data.get('hits', [])
+
+    @staticmethod
+    def get_point(location: dict):
+        return location.get('point', {'lat': 0.0, 'lng': 0.0})
 
 
 class Meteorologist:
     __URL = 'https://api.openweathermap.org/data/2.5/weather'
 
-    def __init__(self):
-        self.__key = settings.OPENWEATHERMAP_API_KEY
+    def __init__(self, token: str):
+        self.__api_key = token
 
-    async def weather(self, lat: float, lon: float, lang='ru'):
-        ps = {'appid': self.__key, 'lat': lat, 'lon': lon, 'lang': lang}
-
-        ps['units'] = 'metric'
+    async def weather(self, latitude: float, longitude: float, lang='ru'):
+        params = {'params': {}}
+        params['params']['appid'] = self.__api_key
+        params['params']['lat'] = latitude
+        params['params']['lon'] = longitude
+        params['params']['lang'] = lang
+        params['params']['units'] = 'metric'
 
         async with ClientSession() as session:
-            async with session.get(url=Meteorologist.__URL, params=ps) as resp:
+            async with session.get(url=self.__class__.__URL, **params) as resp:
                 data = await resp.json()
         return data
 
 
 class GeoGuide:
-    def __init__(self):
-        pass
+    __URL = 'https://api.opentripmap.com/0.1/{}/places/{}'
+
+    def __init__(self, token: str):
+        self.__api_key = token
+
+    async def places(self, lat: float, lon: float, rad=10, limit=10, lang='ru'):
+        places_around = await self.__places_around(lat, lon, rad, lang)
+        features = places_around.get('features', [])
+        features = features[:min(len(features), limit)]
+        places_xids = [x.get('properties', {}).get('xid', '') for x in features]
+        return await self.__places(places_xids)
+
+    async def __places_around(self, lat: float, lon: float, rad=10, lang='ru'):
+        url = self.__class__.__URL.format(lang, 'radius')
+        params = {'params': {}}
+        params['params']['apikey'] = self.__api_key
+        params['params']['radius'] = rad
+        params['params']['lat'] = lat
+        params['params']['lon'] = lon
+        params['params']['rate'] = 3  # minimum rating of the object popularity
+
+        async with ClientSession() as session:
+            async with session.get(url=url, **params) as resp:
+                data = await resp.json()
+        return data
+
+    async def __place(self, xid: str, lang='ru'):
+        url = self.__class__.__URL.format(lang, f'xid/{xid}')
+        params = {'params': {'apikey': self.__api_key}}
+
+        async with ClientSession() as session:
+            async with session.get(url=url, **params) as resp:
+                data = await resp.json()
+        return data
+
+    async def __places(self, xids: list[str], lang='ru'):
+        tasks = [asyncio.create_task(self.__place(xid, lang)) for xid in xids]
+        return await asyncio.gather(*tasks)
 
 
 class Representer:
     @staticmethod
-    async def repr_location(location, translator: Translator):
+    async def repr_location(location: dict, translator: YandexTranslator):
         country = location.get('country', None)
 
         city = location.get('city', None)
@@ -108,16 +152,15 @@ class Representer:
         return ', '.join(answer)
 
     @staticmethod
-    async def repr_locations(locations, translator: Translator):
+    async def repr_locations(locations: list, translator: YandexTranslator):
         tasks = []
         for x in locations:
             task = asyncio.create_task(Representer.repr_location(x, translator))
             tasks.append(task)
-        locations = await asyncio.gather(*tasks)
-        return locations
+        return await asyncio.gather(*tasks)
 
     @staticmethod
-    def __repr_wind_direction(deg):
+    def __repr_wind_direction(deg: float):
         directions = (
             'северный', 'северо-восточный', 'восточный', 'юго-восточный',
             'южный', 'юго-западный', 'западный', 'северо-западный'
@@ -126,13 +169,13 @@ class Representer:
 
     @staticmethod
     def repr_weather(weather_data: dict):
-        description = weather_data.get('weather', [{}])[0].get('description', '')
+        weather = weather_data.get('weather', [{}])
+        desc = weather[0].get('description', '') if weather else ''
 
         main_data = weather_data.get('main', {})
         temp = main_data.get('temp', 0.0)  # Celsius
         feels_like = main_data.get('feels_like', 0.0)  # Celsius
         pressure = main_data.get('pressure', 1000) * 0.75  # mmHg
-
         humidity = main_data.get('humidity', 0)  # %
 
         visibility = weather_data.get('visibility', 10000)  # meters
@@ -153,7 +196,7 @@ class Representer:
         sunset = datetime.fromtimestamp(sunset, tz=tz)
         sunset = f'{str(sunset.hour).zfill(2)}:{str(sunset.minute).zfill(2)}'
 
-        representation = f'Погода в выбранном месте: {description}\n'
+        representation = f'Погода в выбранном месте: {desc}\n'
         representation += f'Температура воздуха: {temp}°C\n'
         representation += f'Ощущается как: {feels_like}°C\n'
         representation += f'Атмосферное давление: {pressure} мм рт. ст.\n'
@@ -163,3 +206,49 @@ class Representer:
         representation += f'Восход солнца: {sunrise}\nЗаход солнца: {sunset}\n'
         representation += f'Видимость: {visibility / 1000} км'
         return representation
+
+    @staticmethod
+    def repr_place(place_data: dict):
+        print(place_data)
+        name = place_data.get('name', '')
+
+        address = place_data.get('address', {})
+        country = address.get('country', '')
+        state = address.get('state', '')
+        county = address.get('county', '')
+        hamlet = address.get('hamlet', '')
+        town = address.get('town', '')
+        city = address.get('city', '')
+        city_district = address.get('city_district', '')
+        road = address.get('road', '')
+        house = address.get('house', '')
+        house_number = address.get('house_number', '')
+
+        addr =[country, state, county, town, city]
+        addr += [road, house, house_number]
+        addr = ', '.join(x for x in addr if x)
+
+        wikipedia_extracts = place_data.get('wikipedia_extracts', {})
+        wikipedia_text = wikipedia_extracts.get('text', '')
+        opentripmap_info = place_data.get('info', {}).get('descr', '')
+
+        description = wikipedia_text if wikipedia_text else ''
+        description = opentripmap_info if not description else description
+
+        description = description[:min(len(description), 300)]
+
+        representation = f'<b>{name[:min(len(name), 50)]}...</b>\n'
+        if description:
+            representation += f'{description}...\n'
+        if addr:
+            representation += f'<b>Адрес:</b> {addr[:min(len(addr), 50)]}'
+        # representation = representation[:min(len(representation), 400)]
+
+        image = place_data.get('image', '')
+        image = {'url': image, 'caption': name} if image else {}
+
+        return {'text': representation, 'img': image}
+
+    @staticmethod
+    def repr_places(places: list):
+        return [Representer.repr_place(place) for place in places]
