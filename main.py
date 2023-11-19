@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import time
 
 from aiogram import F
 from aiogram import Bot, Dispatcher, types
@@ -63,22 +62,23 @@ async def geolocation_point_handler(callback: types.CallbackQuery):
     weather = await weather
     places = await places
 
-    if not places:
-        return await callback.message.answer('Ничего интересного :(')
-
     weather = Representer.repr_weather(weather)
     places = Representer.repr_places(places)
 
-    images = [place['img'] for place in places if place['img']]
     await callback.message.answer(weather)
+
+    if not places:
+        return await callback.message.answer('Ничего интересного :(')
+
+    images = [place['img'] for place in places if place['img']]
     if images:
         album_builder = MediaGroupBuilder()
         for image in images:
             img_url, img_caption = image['url'], image['caption']
             album_builder.add_photo(media=img_url, caption=img_caption)
         await callback.message.answer_media_group(media=album_builder.build())
-    representation = '\n\n'.join(x['text'] for x in places)
-    await callback.message.answer(representation, parse_mode=ParseMode.HTML)
+    representation = '\n\n'.join(x['text'] for x in places if x['text'])
+    await callback.message.answer(representation, parse_mode=ParseMode.MARKDOWN)
 
 
 async def main():

@@ -3,6 +3,8 @@
 import asyncio
 import requests
 
+from bs4 import BeautifulSoup
+
 from aiohttp import ClientSession
 
 import time
@@ -232,20 +234,25 @@ class Representer:
         wikipedia_text = wikipedia_extracts.get('text', '')
         opentripmap_info = place_data.get('info', {}).get('descr', '')
 
-        description = wikipedia_text if wikipedia_text else ''
-        description = opentripmap_info if not description else description
+        description = opentripmap_info if opentripmap_info else ''
+        description = wikipedia_text if not description else description
 
-        description = description[:min(len(description), 300)]
-
-        representation = f'<b>{name[:min(len(name), 50)]}...</b>\n'
-        if description:
-            representation += f'{description}...\n'
-        if addr:
-            representation += f'<b>Адрес:</b> {addr[:min(len(addr), 50)]}'
-        # representation = representation[:min(len(representation), 400)]
+        name = BeautifulSoup(name, "lxml").text
+        addr = BeautifulSoup(addr, "lxml").text
+        description = BeautifulSoup(description, "lxml").text
 
         image = place_data.get('image', '')
         image = {'url': image, 'caption': name} if image else {}
+
+        description = description[:min(len(description), 200)]
+        name = name[:min(len(name), 100)]
+        addr = addr[:min(len(addr), 100)]
+
+        representation = f'*{name}*\n'
+        if description:
+            representation += f'{description}...\n'
+        if addr:
+            representation += f'_Адрес: {addr}_'
 
         return {'text': representation, 'img': image}
 
